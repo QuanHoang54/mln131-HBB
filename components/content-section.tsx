@@ -8,10 +8,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { BookOpen, Users, Scale, TrendingUp, ShieldCheck, Flag } from "lucide-react";
+import { BookOpen, Users, Scale, TrendingUp, ShieldCheck, Flag, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { AnimatedSection, AnimatedCard, StaggerContainer, StaggerItem } from "@/components/animated-section";
 import { motion } from "framer-motion";
 import { Citation } from "@/components/citation";
+import { ImageSlideshow } from "@/components/image-slideshow";
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
 
 const contentSections = [
   {
@@ -43,6 +46,11 @@ const contentSections = [
     title: "Đặc điểm dân tộc Việt Nam",
     description:
       "Để thấy được tại sao người Kinh lại có lợi thế, ta phải nhìn vào thực tế địa chính trị và các đặc điểm riêng của Việt Nam.",
+    image: {
+      src: "/images/ban-do-dan-toc-viet-nam.png",
+      alt: "Bản đồ phân bố các dân tộc Việt Nam theo số liệu tổng điều tra dân số 1999",
+      caption: "Bản đồ phân bố 54 dân tộc Việt Nam"
+    },
     points: [
       { text: "Chênh lệch số dân: Người Kinh chiếm 85,7%, 53 dân tộc còn lại chỉ chiếm 14,3%. Đây là sự chênh lệch tự nhiên về nhân khẩu học.", citation: 1 },
       { text: "Cư trú xen kẽ: Các dân tộc không có lãnh thổ riêng mà sống đan xen. Điều này giúp người Kinh (với số lượng lớn) có mặt ở khắp nơi.", citation: null },
@@ -109,6 +117,28 @@ const contentSections = [
     title: 'Bác bỏ luận điểm "Chiếm dụng"',
     description:
       "Dựa trên thực tế đã phân tích, chúng ta có thể đưa ra các lập luận phản biện các quan điểm sai lệch về vấn đề dân tộc tại Việt Nam.",
+    slideshow: [
+      {
+        src: "/images/bac-bo-1.png",
+        alt: "Giáo viên dạy học cho trẻ em dân tộc thiểu số",
+        caption: "Giáo dục - Đầu tư cho tương lai của đồng bào dân tộc thiểu số"
+      },
+      {
+        src: "/images/bac-bo-2.png",
+        alt: "Các hoạt động phát triển kinh tế vùng dân tộc thiểu số",
+        caption: "Phát triển kinh tế - Nâng cao đời sống vùng DTTS"
+      },
+      {
+        src: "/images/bac-bo-3.png",
+        alt: "Khám chữa bệnh cho đồng bào dân tộc thiểu số",
+        caption: "Y tế - Chăm sóc sức khỏe cho đồng bào DTTS"
+      },
+      {
+        src: "/images/bac-bo-4.png",
+        alt: "Lễ hội văn hóa ẩm thực dân tộc thiểu số",
+        caption: "Bảo tồn và phát huy văn hóa truyền thống các dân tộc"
+      }
+    ],
     points: [
       "Không phải áp đặt văn hóa: Việc người DTTS sử dụng tiếng Việt (tiếng phổ thông) là nhu cầu hội nhập khách quan để giao thương và học tập, không phải sự ép buộc xóa bỏ bản sắc.",
       "Không phải chiếm dụng kinh tế: Người Kinh lên vùng cao thường mang theo vốn, kỹ thuật và thị trường, góp phần thúc đẩy kinh tế địa phương.",
@@ -122,6 +152,23 @@ const contentSections = [
     title: "Ý nghĩa đoàn kết dân tộc & Kết luận",
     description:
       "Đoàn kết dân tộc là nguồn sức mạnh để xây dựng CNXH và bảo vệ Tổ quốc. Xây dựng CNXH thành công chỉ khi mọi dân tộc đều được hưởng thành quả của sự phát triển một cách công bằng.",
+    slideshow: [
+      {
+        src: "/images/doan-ket-dan-toc-1.png",
+        alt: "Đồng bào các dân tộc diễu hành với cờ Việt Nam",
+        caption: "Đồng bào các dân tộc thiểu số trong trang phục truyền thống diễu hành"
+      },
+      {
+        src: "/images/doan-ket-dan-toc-2.jpg",
+        alt: "Biểu diễn văn hóa các dân tộc",
+        caption: "Chương trình nghệ thuật tôn vinh văn hóa các dân tộc Việt Nam"
+      },
+      {
+        src: "/images/doan-ket-dan-toc-3.png",
+        alt: "Bác Hồ với đồng bào dân tộc thiểu số",
+        caption: "Chủ tịch Hồ Chí Minh cùng đồng bào các dân tộc thiểu số"
+      }
+    ],
     points: [
       'Khái niệm "chiếm dụng" là một sự nhìn nhận sai lệch, phiến diện.',
       "Sự vượt trội của dân tộc Kinh là kết quả của điều kiện khách quan.",
@@ -133,6 +180,32 @@ const contentSections = [
 ];
 
 export function ContentSection() {
+  const [imageZoom, setImageZoom] = useState(1);
+  const [highlightedSection, setHighlightedSection] = useState<string | null>(null);
+  
+  const handleZoomIn = () => setImageZoom(prev => Math.min(prev + 0.25, 3));
+  const handleZoomOut = () => setImageZoom(prev => Math.max(prev - 0.25, 0.5));
+  const handleResetZoom = () => setImageZoom(1);
+
+  // Scroll-to-focus behavior: highlight section when navigating via anchor
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        setHighlightedSection(hash);
+        // Remove highlight after 2 seconds
+        setTimeout(() => setHighlightedSection(null), 2000);
+      }
+    };
+
+    // Check on mount
+    handleHashChange();
+    
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   return (
     <section id="noi-dung" className="py-20 px-6 bg-black/70 backdrop-blur-sm">
       <div className="max-w-5xl mx-auto">
@@ -152,10 +225,20 @@ export function ContentSection() {
 
         {/* Content sections */}
         <div className="space-y-12">
-          {contentSections.map((section, index) => (
+          {contentSections.map((section, index) => {
+            const isBacBoSection = section.id === "bac-bo";
+            const isHighlighted = highlightedSection === section.id;
+            
+            return (
             <AnimatedSection key={section.id} id={section.id} delay={index * 0.1}>
               <AnimatedCard>
-                <Card className="border-border/50 shadow-sm overflow-hidden bg-card/95 backdrop-blur-sm">
+                <Card 
+                  className={cn(
+                    "border-border/50 shadow-sm overflow-hidden bg-card/95 backdrop-blur-sm transition-all duration-300",
+                    isHighlighted && "section-focus-highlight",
+                    isBacBoSection && "highlight-box-glow"
+                  )}
+                >
                   <CardHeader className="pb-4">
                     <div className="flex items-start gap-4">
                       <motion.div 
@@ -180,9 +263,93 @@ export function ContentSection() {
                       {section.description}
                     </p>
 
+                    {/* Render image if available */}
+                    {section.image && (
+                      <motion.div 
+                        className="mb-6 rounded-lg overflow-hidden border border-border/50 max-w-md mx-auto"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        whileInView={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        {/* Zoom controls */}
+                        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/50 border-b border-border/30">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleZoomOut}
+                            disabled={imageZoom <= 0.5}
+                            className="h-8 w-8 p-0"
+                          >
+                            <ZoomOut className="h-4 w-4" />
+                          </Button>
+                          <span className="text-sm text-muted-foreground min-w-[60px] text-center">
+                            {Math.round(imageZoom * 100)}%
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleZoomIn}
+                            disabled={imageZoom >= 3}
+                            className="h-8 w-8 p-0"
+                          >
+                            <ZoomIn className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleResetZoom}
+                            className="h-8 w-8 p-0 ml-1"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        {/* Image container with zoom */}
+                        <div className="overflow-auto max-h-[350px] bg-white">
+                          <motion.img 
+                            src={section.image.src}
+                            alt={section.image.alt}
+                            className="w-full h-auto object-contain cursor-grab active:cursor-grabbing"
+                            style={{ 
+                              transform: `scale(${imageZoom})`,
+                              transformOrigin: 'center center'
+                            }}
+                            animate={{ scale: imageZoom }}
+                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            draggable={false}
+                          />
+                        </div>
+                        
+                        {section.image.caption && (
+                          <p className="text-center text-sm text-muted-foreground py-2 bg-muted/30 border-t border-border/30">
+                            {section.image.caption}
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {/* Render slideshow if available */}
+                    {section.slideshow && (
+                      <motion.div 
+                        className="mb-6 max-w-lg mx-auto"
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <ImageSlideshow 
+                          images={section.slideshow}
+                          autoPlay={true}
+                          interval={5000}
+                        />
+                      </motion.div>
+                    )}
+
                     {/* Render bullet points if available */}
                     {section.points && (
-                      <StaggerContainer className="space-y-3" staggerDelay={0.08}>
+                      <StaggerContainer 
+                        className="space-y-3" 
+                        staggerDelay={isBacBoSection ? 0.12 : 0.08}
+                      >
                         {section.points.map((point, i) => {
                           const isObjectPoint = typeof point === "object" && point !== null && "text" in point;
                           const pointText = isObjectPoint ? (point as { text: string; citation: number | null }).text : point;
@@ -191,12 +358,27 @@ export function ContentSection() {
                           return (
                             <StaggerItem key={i}>
                               <motion.li 
-                                className="flex items-start gap-3 list-none"
-                                whileHover={{ x: 5 }}
-                                transition={{ type: "spring", stiffness: 300 }}
+                                className={cn(
+                                  "flex items-start gap-3 list-none rounded-lg p-2 -mx-2 transition-all duration-200",
+                                  isBacBoSection && "hover:bg-muted/30"
+                                )}
+                                whileHover={{ 
+                                  x: isBacBoSection ? 8 : 5,
+                                  scale: isBacBoSection ? 1.01 : 1 
+                                }}
+                                transition={{ type: "spring", stiffness: 300, damping: 25 }}
                               >
-                                <span className="w-2 h-2 rounded-full bg-accent mt-2 shrink-0" />
-                                <span className="text-foreground/90">
+                                <motion.span 
+                                  className={cn(
+                                    "w-2 h-2 rounded-full mt-2 shrink-0",
+                                    isBacBoSection ? "bg-primary" : "bg-accent"
+                                  )}
+                                  whileHover={isBacBoSection ? { scale: 1.3 } : {}}
+                                />
+                                <span className={cn(
+                                  "text-foreground/90 transition-colors duration-200",
+                                  isBacBoSection && "text-emphasis-hover"
+                                )}>
                                   {pointText}
                                   {citationNum && (
                                     <Citation 
@@ -299,7 +481,8 @@ export function ContentSection() {
                 </Card>
               </AnimatedCard>
             </AnimatedSection>
-          ))}
+          );
+          })}
         </div>
       </div>
     </section>

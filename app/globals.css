@@ -191,3 +191,43 @@
   animation: citation-glow 2s ease-out forwards;
   border-radius: 0.5rem;
 }
+
+/* Section focus highlight animation for anchor navigation */
+@keyframes section-focus-glow {
+  0% {
+    box-shadow: 0 0 0 4px rgba(100, 116, 139, 0.3);
+    background-color: rgba(100, 116, 139, 0.05);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(100, 116, 139, 0.15);
+    background-color: rgba(100, 116, 139, 0.08);
+  }
+  100% {
+    box-shadow: none;
+    background-color: transparent;
+  }
+}
+
+.section-focus-highlight {
+  animation: section-focus-glow 2s ease-out forwards;
+}
+
+/* Enhanced hover for key text emphasis */
+.text-emphasis-hover {
+  transition: color 0.2s ease-out;
+}
+
+.text-emphasis-hover:hover {
+  color: var(--primary);
+}
+
+/* Subtle border glow for highlight boxes */
+.highlight-box-glow {
+  transition: all 0.3s ease-out;
+  border: 1px solid transparent;
+}
+
+.highlight-box-glow:hover {
+  border-color: rgba(100, 116, 139, 0.2);
+  box-shadow: 0 0 15px rgba(100, 116, 139, 0.1);
+}
