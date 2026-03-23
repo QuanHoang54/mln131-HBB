@@ -182,12 +182,47 @@ const contentSections = [
 
 export function ContentSection() {
   const [imageZoom, setImageZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const [highlightedSection, setHighlightedSection] = useState<string | null>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const handleZoomIn = () => setImageZoom(prev => Math.min(prev + 0.25, 2));
   const handleZoomOut = () => setImageZoom(prev => Math.max(prev - 0.25, 1));
-  const handleResetZoom = () => setImageZoom(1);
+  const handleResetZoom = () => { setImageZoom(1); setPanX(0); setPanY(0); };
+
+  useEffect(() => {
+    if (imageZoom <= 1) {
+      setPanX(0); setPanY(0);
+    } else {
+      const cw = imageContainerRef.current?.clientWidth ?? 0;
+      const ch = imageContainerRef.current?.clientHeight ?? 0;
+      const maxX = (cw * (imageZoom - 1)) / 2;
+      const maxY = (ch * (imageZoom - 1)) / 2;
+      setPanX(prev => Math.max(-maxX, Math.min(maxX, prev)));
+      setPanY(prev => Math.max(-maxY, Math.min(maxY, prev)));
+    }
+  }, [imageZoom]);
+
+  function handleMapMouseDown(e: React.MouseEvent) {
+    if (imageZoom <= 1) return;
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, panX, panY };
+  }
+  function handleMapMouseMove(e: React.MouseEvent) {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    const cw = imageContainerRef.current?.clientWidth ?? 0;
+    const ch = imageContainerRef.current?.clientHeight ?? 0;
+    const maxX = (cw * (imageZoom - 1)) / 2;
+    const maxY = (ch * (imageZoom - 1)) / 2;
+    setPanX(Math.max(-maxX, Math.min(maxX, dragStart.current.panX + dx)));
+    setPanY(Math.max(-maxY, Math.min(maxY, dragStart.current.panY + dy)));
+  }
+  function handleMapMouseUp() { setIsDragging(false); }
 
   // Scroll-to-focus behavior: highlight section when navigating via anchor
   useEffect(() => {
@@ -306,19 +341,25 @@ export function ContentSection() {
                           </Button>
                         </div>
                         
-                        {/* Image container with zoom */}
-                        <div ref={imageContainerRef} className="overflow-hidden max-h-[350px] bg-white select-none">
-                          <motion.img
-                            key={imageZoom <= 1 ? "normal" : "zoomed"}
+                        {/* Image container with zoom + drag */}
+                        <div
+                          ref={imageContainerRef}
+                          className="overflow-hidden bg-white select-none"
+                          style={{ cursor: imageZoom > 1 ? (isDragging ? "grabbing" : "grab") : "default" }}
+                          onMouseDown={handleMapMouseDown}
+                          onMouseMove={handleMapMouseMove}
+                          onMouseUp={handleMapMouseUp}
+                          onMouseLeave={handleMapMouseUp}
+                        >
+                          <img
                             src={section.image.src}
                             alt={section.image.alt}
-                            className="w-full h-auto object-contain"
-                            style={{ cursor: imageZoom > 1 ? "grab" : "default", transformOrigin: "center center" }}
-                            animate={{ scale: imageZoom }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            drag={imageZoom > 1}
-                            dragConstraints={imageContainerRef}
-                            dragElastic={0.05}
+                            className="w-full h-auto block pointer-events-none"
+                            style={{
+                              transform: `translate(${panX}px, ${panY}px) scale(${imageZoom})`,
+                              transformOrigin: "center center",
+                              transition: isDragging ? "none" : "transform 0.3s ease",
+                            }}
                             draggable={false}
                           />
                         </div>
