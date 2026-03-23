@@ -206,11 +206,11 @@ export default function WaitingRoom({ playerId, roomCode, onLeave }: Props) {
                     <Button
                       size="sm"
                       onClick={() => joinTeam(teamId)}
-                      disabled={isFull || myTeamId !== null}
+                      disabled={isFull}
                       className="w-full text-xs h-7"
                       variant={isFull ? "ghost" : "default"}
                     >
-                      {isFull ? "Đã đủ 3" : myTeamId !== null ? "Rời nhóm cũ trước" : "Vào nhóm"}
+                      {isFull ? "Đã đủ 3" : "Vào nhóm"}
                     </Button>
                   )}
                 </div>
