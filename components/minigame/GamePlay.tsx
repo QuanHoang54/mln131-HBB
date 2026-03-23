@@ -189,7 +189,7 @@ function TradePanel({
       [`teams/${myTeamId}/lastTradeBonusAt`]: now,
       [`teams/${myTeamId}/tradesCount`]: (freshRoom.teams[myTeamId]?.tradesCount ?? 0) + 1,
     });
-    setMsg(`✅ Đã đổi thành công! +1 ${ING_NAME[offer.give]}  🤝 Nhóm được -5s nghỉ ngơi!`);
+    setMsg(`✅ Đã đổi thành công! +1 ${ING_NAME[offer.give]}  🤝 Nhóm được -3s nghỉ ngơi!`);
     setAccepting(null);
   }
 
@@ -397,13 +397,13 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
     return () => { if (cooldownRef.current) clearTimeout(cooldownRef.current); };
   }, [playerCooldown]);
 
-  // Trade bonus: detect lastTradeBonusAt change → -5s cooldown
+  // Trade bonus: detect lastTradeBonusAt change → -3s cooldown
   const myTeamForBonus = myTeamId ? room?.teams?.[myTeamId] : null;
   useEffect(() => {
     const newBonus = myTeamForBonus?.lastTradeBonusAt ?? 0;
     if (newBonus > lastTradeBonusRef.current) {
       lastTradeBonusRef.current = newBonus;
-      setPlayerCooldown(c => Math.max(0, c - 5));
+      setPlayerCooldown(c => Math.max(0, c - 3));
     }
   }, [myTeamForBonus?.lastTradeBonusAt]);
 
@@ -417,7 +417,7 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
           clearInterval(quizTimerRef.current!);
           setShowQuiz(false);
           setQuizQIdx(i => i + 1);
-          setPlayerCooldown(12);
+          setPlayerCooldown(10);
           return 10;
         }
         return t - 1;
@@ -438,7 +438,7 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
     if (quizTimerRef.current) clearInterval(quizTimerRef.current);
     setQuizSelected(optionIdx);
     setQuizAnswered(true);
-    setPlayerCooldown(12);
+    setPlayerCooldown(10);
     if (myPlayer && myTeamId) {
       await runTransaction(
         ref(db, `rooms/${roomCode}/teams/${myTeamId}/questionsAnswered`),
