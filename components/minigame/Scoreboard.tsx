@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ref, onValue } from "firebase/database";
+import { ref, get } from "firebase/database";
 import { db } from "@/lib/firebase";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -47,10 +47,10 @@ export default function Scoreboard({ roomCode, onPlayAgain }: Props) {
   const [room, setRoom] = useState<Room | null>(null);
 
   useEffect(() => {
-    const unsub = onValue(ref(db, `rooms/${roomCode}`), (snap) => {
+    // Game is over — one-time read is enough, no need for persistent listener
+    get(ref(db, `rooms/${roomCode}`)).then((snap) => {
       if (snap.exists()) setRoom(snap.val() as Room);
     });
-    return unsub;
   }, [roomCode]);
 
   if (!room) return (

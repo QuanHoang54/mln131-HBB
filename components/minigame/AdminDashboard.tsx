@@ -69,7 +69,11 @@ export default function AdminDashboard({ roomCode, onLeave }: Props) {
 
   useEffect(() => {
     const unsub = onValue(ref(db, `rooms/${roomCode}`), snap => {
-      if (snap.exists()) setRoom(snap.val() as Room);
+      if (snap.exists()) {
+        const data = snap.val() as Room;
+        setRoom(data);
+        if (data.phase === "ended") unsub();
+      }
     });
     return unsub;
   }, [roomCode]);
