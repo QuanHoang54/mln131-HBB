@@ -80,7 +80,7 @@ export default function WrappingBar({ onResult, onCancel }: Props) {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-background rounded-2xl shadow-2xl p-6 w-full max-w-md space-y-5">
         <div className="text-center">
-          <h3 className="font-serif text-xl font-semibold">🎋 Gói Bánh Chưng</h3>
+          <h3 className="font-serif text-xl font-semibold">🎋 Hồn Việt Trong Bánh</h3>
           <p className="text-sm text-muted-foreground mt-1">Nhấn DỪNG khi con trỏ vào vùng tốt!</p>
         </div>
 
