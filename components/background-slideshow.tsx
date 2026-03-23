@@ -34,7 +34,7 @@ export function BackgroundSlideshow() {
         />
       ))}
       {/* Dark overlay for text contrast */}
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-black/35" />
     </div>
   );
 }

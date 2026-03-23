@@ -46,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="vi" className={`${sourceSerif.variable} ${inter.variable} scroll-smooth`}>
+    <html lang="vi" className={`${sourceSerif.variable} ${inter.variable} scroll-smooth`} data-scroll-behavior="smooth">
       <body className="font-sans antialiased">
         {children}
         <Analytics />

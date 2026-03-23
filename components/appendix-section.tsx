@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookMarked, Users, Bot, Workflow, Table, FileCheck, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import Image from "next/image";
 import { AnimatedSection, AnimatedCard, AnimatedProgress, StaggerContainer, StaggerItem } from "@/components/animated-section";
 import { motion, useInView } from "framer-motion";
 import { useRef } from "react";
@@ -59,28 +60,28 @@ const teamMembers = [
 const workflowSteps = [
   {
     id: "student",
-    icon: "SV",
+    icon: "/images/sv.png",
     title: "Người dùng (Sinh viên)",
     description: "Lên ý tưởng kịch bản, cung cấp tài liệu gốc, định hướng sản phẩm và chịu trách nhiệm kiểm duyệt cuối cùng.",
     color: "bg-blue-100 text-blue-600",
   },
   {
     id: "notebooklm",
-    icon: "NLM",
+    icon: "/images/notebook-lm.png",
     title: "NotebookLM",
     description: "Cố vấn nội dung, tóm tắt tài liệu và biên soạn nội dung.",
     color: "bg-green-100 text-green-600",
   },
   {
     id: "claude",
-    icon: "AI",
+    icon: "/images/claude-icon.png",
     title: "Claude AI",
     description: "Lập trình viên. Thực hiện hóa ý tưởng, viết mã nguồn React/Next.js theo prompt.",
     color: "bg-purple-100 text-purple-600",
   },
   {
     id: "reference",
-    icon: "Ref",
+    icon: "/images/kt.png",
     title: "Nguồn kiểm chứng",
     description: "Dữ liệu gốc và chân lý đối chiếu. Kiểm tra lại đáp án theo giáo trình.",
     color: "bg-orange-100 text-orange-600",
@@ -149,14 +150,14 @@ function AnimatedWorkflow() {
               boxShadow: "0 10px 30px rgba(0,0,0,0.1)"
             }}
           >
-            <motion.div 
-              className={`w-10 h-10 mx-auto mb-2 rounded-full ${step.color} flex items-center justify-center font-bold text-sm`}
+            <motion.div
+              className={`w-12 h-12 mx-auto mb-2 rounded-full ${step.color} flex items-center justify-center`}
               animate={{
                 scale: activeStep === index ? [1, 1.1, 1] : 1,
               }}
               transition={{ duration: 0.5, repeat: activeStep === index ? Infinity : 0 }}
             >
-              {step.icon}
+              <Image src={step.icon} alt={step.title} width={30} height={30} className="w-[30px] h-[30px] object-contain" />
             </motion.div>
             <h5 className="font-medium text-sm text-foreground mb-1">{step.title}</h5>
             <p className="text-xs text-muted-foreground">{step.description}</p>
@@ -194,7 +195,7 @@ function AnimatedCounter({ value, duration = 2 }: { value: number; duration?: nu
 
 export function AppendixSection() {
   return (
-    <section id="phu-luc" className="py-20 px-6 bg-black/70 backdrop-blur-sm">
+    <section id="phu-luc" className="py-20 px-6 bg-black/25 backdrop-blur-[3px]">
       <div className="max-w-5xl mx-auto">
         {/* Section header */}
         <AnimatedSection className="text-center mb-16">
@@ -222,7 +223,7 @@ export function AppendixSection() {
                       className="p-2 rounded-lg bg-primary/10 text-primary"
                       whileHover={{ scale: 1.1, rotate: 5 }}
                     >
-                      <BookMarked className="w-5 h-5" />
+                      <Image src="/images/tltk.png" alt="Tài liệu tham khảo" width={20} height={20} className="w-5 h-5 object-contain" />
                     </motion.div>
                     Tài liệu tham khảo
                   </CardTitle>
@@ -272,7 +273,7 @@ export function AppendixSection() {
                       className="p-2 rounded-lg bg-primary/10 text-primary"
                       whileHover={{ scale: 1.1, rotate: 5 }}
                     >
-                      <Users className="w-5 h-5" />
+                      <Image src="/images/ttnth.png" alt="Nhóm thực hiện" width={20} height={20} className="w-5 h-5 object-contain" />
                     </motion.div>
                     Thông tin nhóm thực hiện
                   </CardTitle>
@@ -327,7 +328,7 @@ export function AppendixSection() {
                     className="p-2 rounded-lg bg-accent/10 text-accent"
                     whileHover={{ scale: 1.1, rotate: 5 }}
                   >
-                    <Bot className="w-6 h-6" />
+                      <Image src="/images/aiuse.png" alt="AI Usage" width={24} height={24} className="w-6 h-6 object-contain" />
                   </motion.div>
                   AI Usage - Báo cáo minh bạch liêm chính học thuật
                 </CardTitle>
@@ -362,7 +363,6 @@ export function AppendixSection() {
                     >
                       2
                     </motion.span>
-                    <Workflow className="w-4 h-4" />
                     Mô hình làm việc (Workflow)
                   </h4>
                   <AnimatedWorkflow />
@@ -377,7 +377,6 @@ export function AppendixSection() {
                     >
                       3
                     </motion.span>
-                    <Table className="w-4 h-4" />
                     Bảng sử dụng minh bạch AI (AI Usage Tracker)
                   </h4>
                   <div className="overflow-x-auto">
@@ -438,7 +437,6 @@ export function AppendixSection() {
                     >
                       4
                     </motion.span>
-                    <FileCheck className="w-4 h-4" />
                     Nguồn tài liệu kiểm chứng
                   </h4>
                   <motion.div 

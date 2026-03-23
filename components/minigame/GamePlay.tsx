@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { ref, onValue, update, get, push, remove, runTransaction } from "firebase/database";
+import { ref, onValue, update, get, push, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { questions } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -14,8 +14,8 @@ import { X, ArrowRightLeft, Check } from "lucide-react";
 
 type IngKey = "gao" | "thit" | "dau" | "la";
 interface Inventory { gao: number; thit: number; dau: number; la: number; }
-interface Player { name: string; teamId: string | null; bags: number; }
-interface Team { name: string; color: string; score: number; inventory: Inventory; banh: { thuong: number; dep: number; hiem: number }; }
+interface Player { name: string; teamId: string | null; }
+interface Team { name: string; color: string; score: number; bags?: number; questionsAnswered?: number; inventory: Inventory; banh: { thuong: number; dep: number; hiem: number }; lastTradeBonusAt?: number; tradesCount?: number; }
 interface TradeOffer { fromTeam: string; fromTeamName: string; give: IngKey; want: IngKey; }
 interface Room {
   host: string; gameStartTime: number; phase: string;
@@ -33,18 +33,30 @@ const ING_IMG: Record<IngKey, string> = {
   la:   "/pictures/la.png",
 };
 const ING_NAME: Record<IngKey, string> = { gao: "Gạo", thit: "Thịt", dau: "Đậu", la: "Lá" };
-const ING_KEYS: IngKey[] = ["gao", "gao", "thit", "dau", "la"]; // gao weighted x2
 const ALL_INGS: IngKey[] = ["gao", "thit", "dau", "la"];
+const DROP_POOLS: IngKey[][] = [
+  ["gao","gao","gao","thit","thit","thit","la","dau"],  // A — team1,5,...
+  ["la","la","la","dau","dau","dau","gao","thit"],       // B — team2,6,...
+  ["gao","gao","gao","la","la","la","thit","dau"],       // C — team3,7,...
+  ["thit","thit","thit","dau","dau","dau","gao","la"],   // D — team4,8,...
+];
+function getDropPool(teamId: string | null): IngKey[] {
+  if (!teamId) return DROP_POOLS[0];
+  const n = parseInt(teamId.replace("team", ""), 10) || 1;
+  return DROP_POOLS[(n - 1) % 4];
+}
 
-const GAME_DURATION = 7 * 60 * 1000;
-const WRAP_POINTS = { thuong: 1, dep: 2, hiem: 4 };
+const GAME_DURATION = 10 * 60 * 1000;
+
+function calcScore(banh: { thuong: number; dep: number; hiem: number } | undefined): number {
+  if (!banh) return 0;
+  return (banh.thuong ?? 0) * 1 + (banh.dep ?? 0) * 2 + (banh.hiem ?? 0) * 4;
+}
 
 function canWrap(inv: Inventory) {
   return inv.gao >= 2 && inv.thit >= 1 && inv.dau >= 1 && inv.la >= 1;
 }
-function randomIngredient(): IngKey {
-  return ING_KEYS[Math.floor(Math.random() * ING_KEYS.length)];
-}
+
 function formatTime(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -97,29 +109,56 @@ function TradePanel({
 
   async function postOffer() {
     if (giveIng === wantIng) { setMsg("Chọn hai nguyên liệu khác nhau!"); return; }
-    if ((myInv[giveIng] ?? 0) < 1) { setMsg(`Bạn không có ${ING_NAME[giveIng]} để đổi!`); return; }
     if (myOffer) { setMsg("Bạn đã có 1 đề xuất đang chờ. Hủy trước rồi đăng lại."); return; }
     setPosting(true); setMsg("");
+    // Atomically deduct the ingredient — locks it so it can't be double-spent
+    const deductResult = await runTransaction(
+      ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory/${giveIng}`),
+      (current) => (current === null || current < 1) ? undefined : current - 1
+    );
+    if (!deductResult.committed) {
+      setMsg(`Bạn không có ${ING_NAME[giveIng]} để đổi!`);
+      setPosting(false); return;
+    }
     await push(ref(db, `rooms/${roomCode}/market`), {
-      fromTeam: myTeamId,
-      fromTeamName: myTeamName,
-      give: giveIng,
-      want: wantIng,
+      fromTeam: myTeamId, fromTeamName: myTeamName, give: giveIng, want: wantIng,
     });
     setMsg("Đã đăng! Chờ team khác chấp nhận...");
     setPosting(false);
   }
 
-  async function cancelOffer(id: string) {
-    await remove(ref(db, `rooms/${roomCode}/market/${id}`));
+  async function cancelOffer(id: string, giveIng: IngKey) {
+    // Use runTransaction instead of remove — only restore if offer still exists (not already accepted)
+    const claimResult = await runTransaction(
+      ref(db, `rooms/${roomCode}/market/${id}`),
+      (current) => current === null ? undefined : null
+    );
+    if (!claimResult.committed) {
+      setMsg("Đề xuất vừa được nhóm khác chấp nhận rồi!");
+      return;
+    }
+    await runTransaction(
+      ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory/${giveIng}`),
+      (current) => (current ?? 0) + 1
+    );
     setMsg("");
   }
 
   async function acceptOffer(id: string, offer: TradeOffer) {
-    if (offer.fromTeam === myTeamId) { setMsg("Không thể chấp nhận đề xuất của chính team mình!"); return; }
+    if (offer.fromTeam === myTeamId) { setMsg("Không thể chấp nhận đề xuất của chính nhóm mình!"); return; }
     setAccepting(id); setMsg("");
 
-    // Re-fetch both teams' inventories for safety
+    // Atomically claim (remove) the offer first — prevents two teams accepting simultaneously
+    const claimResult = await runTransaction(
+      ref(db, `rooms/${roomCode}/market/${id}`),
+      (current) => current === null ? undefined : null
+    );
+    if (!claimResult.committed) {
+      setMsg("Đề xuất này vừa được nhóm khác chấp nhận rồi!");
+      setAccepting(null); return;
+    }
+
+    // Re-fetch both teams' inventories after claiming
     const roomSnap = await get(ref(db, `rooms/${roomCode}`));
     if (!roomSnap.exists()) { setAccepting(null); return; }
     const freshRoom = roomSnap.val() as Room;
@@ -127,27 +166,30 @@ function TradePanel({
     const offerTeamInv: Inventory = freshRoom.teams[offer.fromTeam]?.inventory ?? { gao: 0, thit: 0, dau: 0, la: 0 };
     const myFreshInv: Inventory   = freshRoom.teams[myTeamId]?.inventory    ?? { gao: 0, thit: 0, dau: 0, la: 0 };
 
-    if ((offerTeamInv[offer.give] ?? 0) < 1) {
-      setMsg(`${offer.fromTeamName} không còn ${ING_NAME[offer.give]} nữa!`);
-      await remove(ref(db, `rooms/${roomCode}/market/${id}`));
-      setAccepting(null); return;
-    }
+    // offer.give was already deducted from poster at postOffer time — don't check/deduct again
+    // Only check that MY team has the want ingredient
     if ((myFreshInv[offer.want] ?? 0) < 1) {
-      setMsg(`Team bạn không có ${ING_NAME[offer.want]} để đổi!`);
+      // Restore poster's locked ingredient since trade can't complete
+      await runTransaction(
+        ref(db, `rooms/${roomCode}/teams/${offer.fromTeam}/inventory/${offer.give}`),
+        (current) => (current ?? 0) + 1
+      );
+      setMsg(`Nhóm bạn không có ${ING_NAME[offer.want]} để đổi!`);
       setAccepting(null); return;
     }
 
-    // Execute swap
-    await update(ref(db, `rooms/${roomCode}/teams/${offer.fromTeam}/inventory`), {
-      [offer.give]: offerTeamInv[offer.give] - 1,
-      [offer.want]: (offerTeamInv[offer.want] ?? 0) + 1,
+    // Single atomic multi-path update — all-or-nothing, no partial failure
+    const now = Date.now();
+    await update(ref(db, `rooms/${roomCode}`), {
+      [`teams/${offer.fromTeam}/inventory/${offer.want}`]: (offerTeamInv[offer.want] ?? 0) + 1,
+      [`teams/${offer.fromTeam}/lastTradeBonusAt`]: now,
+      [`teams/${offer.fromTeam}/tradesCount`]: (freshRoom.teams[offer.fromTeam]?.tradesCount ?? 0) + 1,
+      [`teams/${myTeamId}/inventory/${offer.want}`]: myFreshInv[offer.want] - 1,
+      [`teams/${myTeamId}/inventory/${offer.give}`]: (myFreshInv[offer.give] ?? 0) + 1,
+      [`teams/${myTeamId}/lastTradeBonusAt`]: now,
+      [`teams/${myTeamId}/tradesCount`]: (freshRoom.teams[myTeamId]?.tradesCount ?? 0) + 1,
     });
-    await update(ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory`), {
-      [offer.want]: myFreshInv[offer.want] - 1,
-      [offer.give]: (myFreshInv[offer.give] ?? 0) + 1,
-    });
-    await remove(ref(db, `rooms/${roomCode}/market/${id}`));
-    setMsg(`✅ Đã đổi thành công! +1 ${ING_NAME[offer.give]}`);
+    setMsg(`✅ Đã đổi thành công! +1 ${ING_NAME[offer.give]}  🤝 Nhóm được -5s nghỉ ngơi!`);
     setAccepting(null);
   }
 
@@ -156,78 +198,80 @@ function TradePanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Image src="/pictures/shop.png" alt="shop" width={24} height={24} className="object-contain" />
-            <h3 className="font-semibold">Quầy Quây Quần</h3>
+        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Image src="/pictures/shop.png" alt="shop" width={28} height={28} className="object-contain" />
+            <h3 className="font-semibold text-base">Quầy Quây Quần</h3>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
           {/* Post offer */}
-          <div className="bg-muted/40 rounded-xl p-3 space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Đăng đề xuất đổi</p>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground mb-1">Tôi cho</p>
-                <div className="grid grid-cols-2 gap-1">
-                  {ALL_INGS.map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => setGiveIng(k)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-xs transition-all",
-                        giveIng === k ? "border-primary bg-primary/10 font-medium" : "border-border bg-background",
-                        (myInv[k] ?? 0) === 0 && "opacity-40"
-                      )}
-                    >
-                      <IngImg k={k} size={20} />
-                      <span>{ING_NAME[k]}</span>
-                      <span className="ml-auto text-muted-foreground">×{myInv[k] ?? 0}</span>
-                    </button>
-                  ))}
-                </div>
+          <div className="bg-muted/40 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Đăng đề xuất đổi</p>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Tôi cho</p>
+              <div className="grid grid-cols-4 gap-2">
+                {ALL_INGS.map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setGiveIng(k)}
+                    className={cn(
+                      "flex flex-col items-center gap-1 px-1 py-2 rounded-xl border-2 text-xs transition-all",
+                      giveIng === k ? "border-primary bg-primary/10 font-semibold" : "border-border bg-background",
+                      (myInv[k] ?? 0) === 0 && "opacity-40"
+                    )}
+                  >
+                    <IngImg k={k} size={24} />
+                    <span>{ING_NAME[k]}</span>
+                    <span className="text-muted-foreground font-normal">×{myInv[k] ?? 0}</span>
+                  </button>
+                ))}
               </div>
+            </div>
 
+            <div className="flex items-center gap-2 py-1">
+              <div className="flex-1 h-px bg-border" />
               <ArrowRightLeft className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 h-px bg-border" />
+            </div>
 
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground mb-1">Tôi muốn</p>
-                <div className="grid grid-cols-2 gap-1">
-                  {ALL_INGS.map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => setWantIng(k)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-xs transition-all",
-                        wantIng === k ? "border-green-500 bg-green-50 font-medium" : "border-border bg-background"
-                      )}
-                    >
-                      <IngImg k={k} size={20} />
-                      <span>{ING_NAME[k]}</span>
-                    </button>
-                  ))}
-                </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Tôi muốn</p>
+              <div className="grid grid-cols-4 gap-2">
+                {ALL_INGS.map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setWantIng(k)}
+                    className={cn(
+                      "flex flex-col items-center gap-1 px-1 py-2 rounded-xl border-2 text-xs transition-all",
+                      wantIng === k ? "border-green-500 bg-green-50 font-semibold" : "border-border bg-background"
+                    )}
+                  >
+                    <IngImg k={k} size={24} />
+                    <span>{ING_NAME[k]}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
             {myOffer ? (
-              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <p className="text-xs text-amber-700">
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                <p className="text-sm text-amber-700">
                   Đang chờ: <strong>{ING_NAME[myOffer[1].give]}</strong> → <strong>{ING_NAME[myOffer[1].want]}</strong>
                 </p>
-                <Button size="sm" variant="ghost" onClick={() => cancelOffer(myOffer[0])} className="text-xs h-6 text-red-500 hover:text-red-700">
+                <Button size="sm" variant="ghost" onClick={() => cancelOffer(myOffer[0], myOffer[1].give)} className="text-sm h-7 text-red-500 hover:text-red-700">
                   Hủy
                 </Button>
               </div>
             ) : (
-              <Button onClick={postOffer} disabled={posting} size="sm" className="w-full gap-1.5">
-                <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
+              <Button onClick={postOffer} disabled={posting} className="w-full h-10 text-sm gap-2">
+                <Image src="/pictures/shop.png" alt="shop" width={18} height={18} className="object-contain" />
                 Đăng đổi: 1 {ING_NAME[giveIng]} → 1 {ING_NAME[wantIng]}
               </Button>
             )}
@@ -235,37 +279,43 @@ function TradePanel({
 
           {/* Offers from others */}
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Đề xuất từ team khác ({otherOffers.length})
+            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2.5">
+              Đề xuất từ nhóm khác ({otherOffers.length})
             </p>
             {otherOffers.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4 italic">Chưa có đề xuất nào...</p>
+              <p className="text-sm text-muted-foreground text-center py-5 italic">Chưa có đề xuất nào...</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
                 {otherOffers.map(([id, offer]) => (
-                  <div key={id} className="flex items-center justify-between bg-background border border-border rounded-lg px-3 py-2 gap-2">
-                    <div>
-                      <p className="text-xs font-medium">{offer.fromTeamName}</p>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <IngImg k={offer.give} size={18} />
-                        <span className="text-xs">{ING_NAME[offer.give]}</span>
-                        <ArrowRightLeft className="w-3 h-3 text-muted-foreground mx-0.5" />
-                        <IngImg k={offer.want} size={18} />
-                        <span className="text-xs">{ING_NAME[offer.want]}</span>
+                  <div key={id} className="bg-background border border-border rounded-xl p-3.5 space-y-2.5">
+                    <p className="text-sm font-semibold">{offer.fromTeamName}</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 text-center">
+                        <p className="text-[11px] font-semibold text-red-500 uppercase tracking-wide mb-1">Bạn sẽ mất</p>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <IngImg k={offer.want} size={22} />
+                          <span className="text-sm font-bold text-red-700">{ING_NAME[offer.want]}</span>
+                        </div>
+                      </div>
+                      <ArrowRightLeft className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 bg-green-50 border border-green-200 rounded-lg px-2.5 py-2 text-center">
+                        <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-1">Bạn sẽ nhận</p>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <IngImg k={offer.give} size={22} />
+                          <span className="text-sm font-bold text-green-700">{ING_NAME[offer.give]}</span>
+                        </div>
                       </div>
                     </div>
                     <Button
-                      size="sm"
                       onClick={() => acceptOffer(id, offer)}
                       disabled={accepting === id || (myInv[offer.want] ?? 0) < 1}
-                      className="text-xs h-7 gap-1 bg-green-600 hover:bg-green-700 text-white shrink-0"
+                      className="w-full h-10 text-sm gap-2 bg-green-600 hover:bg-green-700 text-white"
                     >
-                      {accepting === id ? (
-                        <span className="animate-spin">⏳</span>
-                      ) : (
-                        <><Check className="w-3 h-3" />Đổi</>
-                      )}
+                      {accepting === id ? <span className="animate-spin">⏳</span> : <><Check className="w-4 h-4" />Đổi ngay</>}
                     </Button>
+                    {(myInv[offer.want] ?? 0) < 1 && (
+                      <p className="text-xs text-red-500 text-center -mt-1">Bạn không có {ING_NAME[offer.want]} để đổi</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -273,7 +323,7 @@ function TradePanel({
           </div>
 
           {msg && (
-            <p className={cn("text-xs text-center rounded-lg px-3 py-2",
+            <p className={cn("text-sm text-center rounded-xl px-3 py-2.5",
               msg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"
             )}>
               {msg}
@@ -299,7 +349,11 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   const quizTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [openingBag, setOpeningBag] = useState(false);
   const [lastIngredient, setLastIngredient] = useState<IngKey | null>(null);
+  const [playerCooldown, setPlayerCooldown] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const cooldownRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTradeBonusRef = useRef<number>(0);
+  const [showScoreModal, setShowScoreModal] = useState(false);
 
   useEffect(() => {
     const unsub = onValue(ref(db, `rooms/${roomCode}`), (snap) => {
@@ -330,11 +384,28 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   const myPlayer = room?.players?.[playerId];
   const myTeamId = myPlayer?.teamId;
   const myTeam   = myTeamId ? room?.teams?.[myTeamId] : null;
-  const myBags   = myPlayer?.bags ?? 0;
+  const myBags   = myTeam?.bags ?? 0;
 
   const timeLeft = room ? Math.max(0, GAME_DURATION - (now - room.gameStartTime)) : 0;
   const currentQ = shuffledQuestions[quizQIdx % shuffledQuestions.length];
   const correctIdx = currentQ?.correct;
+
+  // Per-player cooldown countdown
+  useEffect(() => {
+    if (playerCooldown <= 0) return;
+    cooldownRef.current = setTimeout(() => setPlayerCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => { if (cooldownRef.current) clearTimeout(cooldownRef.current); };
+  }, [playerCooldown]);
+
+  // Trade bonus: detect lastTradeBonusAt change → -5s cooldown
+  const myTeamForBonus = myTeamId ? room?.teams?.[myTeamId] : null;
+  useEffect(() => {
+    const newBonus = myTeamForBonus?.lastTradeBonusAt ?? 0;
+    if (newBonus > lastTradeBonusRef.current) {
+      lastTradeBonusRef.current = newBonus;
+      setPlayerCooldown(c => Math.max(0, c - 5));
+    }
+  }, [myTeamForBonus?.lastTradeBonusAt]);
 
   // Quiz countdown — starts at 10s when modal opens, auto-closes on 0
   useEffect(() => {
@@ -346,6 +417,7 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
           clearInterval(quizTimerRef.current!);
           setShowQuiz(false);
           setQuizQIdx(i => i + 1);
+          setPlayerCooldown(12);
           return 10;
         }
         return t - 1;
@@ -366,8 +438,18 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
     if (quizTimerRef.current) clearInterval(quizTimerRef.current);
     setQuizSelected(optionIdx);
     setQuizAnswered(true);
-    if (optionIdx === correctIdx && myPlayer) {
-      await update(ref(db, `rooms/${roomCode}/players/${playerId}`), { bags: (myPlayer.bags ?? 0) + 1 });
+    setPlayerCooldown(12);
+    if (myPlayer && myTeamId) {
+      await runTransaction(
+        ref(db, `rooms/${roomCode}/teams/${myTeamId}/questionsAnswered`),
+        (current) => (current ?? 0) + 1
+      );
+      if (optionIdx === correctIdx) {
+        await runTransaction(
+          ref(db, `rooms/${roomCode}/teams/${myTeamId}/bags`),
+          (current) => (current ?? 0) + 1
+        );
+      }
     }
     setTimeout(() => {
       setShowQuiz(false);
@@ -380,15 +462,15 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   async function openBag() {
     if (openingBag || myBags <= 0 || !myTeamId) return;
     setOpeningBag(true);
-    const ing = randomIngredient();
-    setLastIngredient(ing);
-    // Atomic decrement — prevents double-open race condition
+    const pool = getDropPool(myTeamId);
+    const ing = pool[Math.floor(Math.random() * pool.length)];
+    // Atomic decrement first — only show ingredient if bags actually decremented
     const bagResult = await runTransaction(
-      ref(db, `rooms/${roomCode}/players/${playerId}/bags`),
+      ref(db, `rooms/${roomCode}/teams/${myTeamId}/bags`),
       (current) => (current === null || current <= 0) ? undefined : current - 1
     );
     if (bagResult.committed) {
-      // Atomic increment on team inventory
+      setLastIngredient(ing);
       await runTransaction(
         ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory/${ing}`),
         (current) => (current ?? 0) + 1
@@ -399,15 +481,24 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
 
   async function handleWrapResult(result: WrapResult) {
     setShowWrap(false);
-    if (!myTeamId || !myTeam) return;
-    const inv = myTeam.inventory;
-    if (!canWrap(inv)) return;
-    const points   = WRAP_POINTS[result];
-    const newScore = (myTeam.score ?? 0) + points;
-    const newBanh  = { ...myTeam.banh, [result]: (myTeam.banh?.[result] ?? 0) + 1 };
-    const newInv   = { gao: inv.gao - 2, thit: inv.thit - 1, dau: inv.dau - 1, la: inv.la - 1 };
-    await update(ref(db, `rooms/${roomCode}/teams/${myTeamId}`), {
-      score: newScore, banh: newBanh, inventory: newInv,
+    if (!myTeamId) return;
+    // Atomic transaction on the whole team node — eliminates TOCTOU race between teammates
+    // If two players wrap simultaneously, only the first commit succeeds; the second sees
+    // canWrap = false after the first has already deducted and aborts cleanly.
+    await runTransaction(ref(db, `rooms/${roomCode}/teams/${myTeamId}`), (current) => {
+      if (!current) return undefined;
+      const inv: Inventory = current.inventory ?? { gao: 0, thit: 0, dau: 0, la: 0 };
+      if (!canWrap(inv)) return undefined; // abort — not enough or already used by teammate
+      return {
+        ...current,
+        inventory: { gao: inv.gao - 2, thit: inv.thit - 1, dau: inv.dau - 1, la: inv.la - 1 },
+        banh: {
+          thuong: current.banh?.thuong ?? 0,
+          dep:    current.banh?.dep    ?? 0,
+          hiem:   current.banh?.hiem   ?? 0,
+          [result]: (current.banh?.[result] ?? 0) + 1,
+        },
+      };
     });
   }
 
@@ -417,73 +508,105 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
     </div>
   );
 
-  const teams      = Object.entries(room.teams || {}).sort(([, a], [, b]) => b.score - a.score);
+  const teams      = Object.entries(room.teams || {}).sort(([, a], [, b]) => calcScore(b.banh) - calcScore(a.banh));
   const inv        = myTeam?.inventory ?? { gao: 0, thit: 0, dau: 0, la: 0 };
   const canWrapNow = myTeamId && canWrap(inv);
   const market     = room.market ?? {};
   const pendingOffers = Object.values(market).filter((o) => o.fromTeam !== myTeamId).length;
 
+  const colorMap: Record<IngKey, string> = {
+    gao:  "bg-yellow-50 border-yellow-300",
+    thit: "bg-red-50 border-red-300",
+    dau:  "bg-green-50 border-green-300",
+    la:   "bg-emerald-50 border-emerald-300",
+  };
+
   return (
-    <div className="max-w-2xl mx-auto p-3 space-y-3">
-      {showWrap  && <WrappingBar onResult={handleWrapResult} onCancel={() => setShowWrap(false)} />}
+    <div className="max-w-xl mx-auto p-5 space-y-4">
+      {showWrap && <WrappingBar onResult={handleWrapResult} onCancel={() => setShowWrap(false)} />}
       {showTrade && myTeamId && (
         <TradePanel
-          roomCode={roomCode}
-          myTeamId={myTeamId}
-          myTeamName={myTeam?.name ?? ""}
-          myInv={inv}
-          market={market}
+          roomCode={roomCode} myTeamId={myTeamId} myTeamName={myTeam?.name ?? ""}
+          myInv={inv} market={market}
           onClose={() => setShowTrade(false)}
         />
+      )}
+
+      {/* Scoreboard modal */}
+      {showScoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowScoreModal(false)}>
+          <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2 text-sm">
+                <Image src="/pictures/podium.png" alt="podium" width={18} height={18} className="object-contain" />
+                Bảng điểm
+              </h3>
+              <button onClick={() => setShowScoreModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {teams.map(([tid, t], i) => (
+                <div key={tid} className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-sm border-2",
+                  i === 0 ? "bg-amber-50 border-amber-300 shadow-sm" :
+                  tid === myTeamId ? "bg-primary/10 border-primary/30 font-medium" :
+                  "bg-muted/30 border-transparent"
+                )}>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i+1}.`}</span>
+                    <span className="truncate font-medium">{t.name}</span>
+                  </span>
+                  <span className={cn("font-extrabold text-base shrink-0 ml-2", i === 0 ? "text-amber-600" : "text-primary")}>
+                    {calcScore(t.banh)} Điểm
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Quiz modal */}
       {showQuiz && currentQ && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Image src="/pictures/question.png" alt="quiz" width={24} height={24} className="object-contain" />
-                <p className="font-medium text-sm">Tìm Nguyên Liệu</p>
+          <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <Image src="/pictures/question.png" alt="quiz" width={28} height={28} className="object-contain" />
+                <p className="font-semibold text-base">Tìm Nguyên Liệu</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {!quizAnswered && (
-                  <span className={cn(
-                    "font-mono text-sm font-bold w-6 text-center",
-                    quizTimeLeft <= 3 ? "text-red-500 animate-pulse" : "text-muted-foreground"
-                  )}>
+                  <span className={cn("font-mono text-lg font-bold w-8 text-center", quizTimeLeft <= 3 ? "text-red-500 animate-pulse" : "text-muted-foreground")}>
                     {quizTimeLeft}s
                   </span>
                 )}
                 {!quizAnswered && (
                   <button onClick={() => { if (quizTimerRef.current) clearInterval(quizTimerRef.current); setShowQuiz(false); setQuizQIdx(i => i + 1); }} className="text-muted-foreground hover:text-foreground">
-                    <X className="w-4 h-4" />
+                    <X className="w-5 h-5" />
                   </button>
                 )}
               </div>
             </div>
-            <div className="p-4 space-y-3">
-              <p className="font-serif text-sm leading-snug">{currentQ.question}</p>
-              <div className="space-y-1.5">
+            <div className="p-5 space-y-4">
+              <p className="font-serif text-base leading-relaxed">{currentQ.question}</p>
+              <div className="space-y-2">
                 {currentQ.options.map((opt, i) => {
                   const isSelected = quizSelected === i;
                   const isCorrect  = i === correctIdx;
                   return (
-                    <button
-                      key={i}
-                      onClick={() => handleQuizAnswer(i)}
-                      disabled={quizAnswered}
+                    <button key={i} onClick={() => handleQuizAnswer(i)} disabled={quizAnswered}
                       className={cn(
-                        "w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-all",
+                        "w-full text-left px-4 py-3 rounded-xl border-2 text-base transition-all",
                         !quizAnswered && "hover:border-primary/50 hover:bg-primary/5 cursor-pointer",
                         quizAnswered && isCorrect  && "border-green-500 bg-green-50 text-green-800 font-medium",
                         quizAnswered && isSelected && !isCorrect && "border-red-400 bg-red-50 text-red-700",
                         quizAnswered && !isSelected && !isCorrect && "opacity-40",
                         !quizAnswered && isSelected  && "border-primary bg-primary/5",
                         !quizAnswered && !isSelected && "border-border bg-background"
-                      )}
-                    >
-                      <span className="font-medium mr-2 text-muted-foreground">{["A","B","C","D"][i]}.</span>
+                      )}>
+                      <span className="font-semibold mr-2 text-muted-foreground">{["A","B","C","D"][i]}.</span>
                       {opt}
                       {quizAnswered && isCorrect  && <span className="float-right">✅</span>}
                       {quizAnswered && isSelected && !isCorrect && <span className="float-right">❌</span>}
@@ -492,150 +615,101 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
                 })}
               </div>
               {quizAnswered && quizSelected === correctIdx && (
-                <p className="text-sm text-green-600 font-medium text-center">🎉 Đúng! +1 túi nguyên liệu</p>
+                <p className="text-base text-green-600 font-semibold text-center">🎉 Đúng! +1 túi nguyên liệu</p>
               )}
               {quizAnswered && quizSelected !== null && quizSelected !== correctIdx && (
-                <p className="text-sm text-red-500 text-center">Sai rồi, cố lên! Không bị trừ điểm</p>
+                <p className="text-base text-red-500 text-center">Sai rồi, cố lên! Không bị trừ điểm</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Timer bar */}
-      <div className="flex items-center justify-between gap-3">
-        <div className={cn("font-mono text-xl font-bold tabular-nums", timeLeft < 30000 && "text-red-500 animate-pulse")}>
+      {/* 1. Timer bar */}
+      <div className="flex items-center justify-between gap-3 bg-white/90 backdrop-blur-sm rounded-2xl px-5 py-4 border border-white/40 shadow-md">
+        <div className={cn("font-mono text-3xl font-extrabold tabular-nums tracking-tight", timeLeft < 30000 ? "text-red-500 animate-pulse" : "text-foreground")}>
           ⏱ {formatTime(timeLeft)}
         </div>
-        <div className="text-sm text-muted-foreground">{myTeam?.name ?? "Chưa vào team"}</div>
-        <Badge variant="secondary">🎋 {myTeam?.score ?? 0}đ</Badge>
+        <div className="text-base font-medium text-foreground/70 truncate">{myTeam?.name ?? "Chưa vào nhóm"}</div>
+        <Badge variant="secondary" className="text-base font-bold px-4 py-1.5">🎋 {calcScore(myTeam?.banh)} Điểm</Badge>
       </div>
 
-      {/* Inventory + Bags + Trade */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Team inventory */}
-        <Card className="border-border/50">
-          <CardHeader className="pb-2 pt-3 px-3">
-            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Kho {myTeam?.name ?? "—"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-3">
-            <div className="grid grid-cols-2 gap-1.5">
-              {ALL_INGS.map((k) => (
-                <div
-                  key={k}
-                  className={cn(
-                    "flex items-center gap-1.5 px-2 py-1.5 rounded-md border",
-                    inv[k] > 0 ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-border/30 opacity-50"
-                  )}
-                >
-                  <IngImg k={k} size={22} />
-                  <span className="text-xs flex-1 truncate">{ING_NAME[k]}</span>
-                  <span className="text-xs font-bold">{inv[k]}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-xs text-muted-foreground text-center">
-              Cần: 2 Gạo + 1 Thịt + 1 Đậu + 1 Lá
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Bags + Trade */}
-        <div className="space-y-2">
-          <Card className="border-border/50">
-            <CardHeader className="pb-1 pt-2 px-3">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Túi của bạn
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3 space-y-2">
-              <div className="text-center">
-                <span className="text-3xl">🎁</span>
-                <p className="text-2xl font-bold text-primary">{myBags}</p>
-                <p className="text-xs text-muted-foreground">túi chưa mở</p>
+      {/* 2. Inventory — compact 4-column */}
+      <Card className="border-2 border-border/60 shadow-sm">
+        <CardContent className="px-4 py-4">
+          <div className="grid grid-cols-4 gap-3">
+            {ALL_INGS.map((k) => (
+              <div key={k} className={cn(
+                "flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all",
+                inv[k] > 0 ? colorMap[k] : "bg-muted/20 border-border/30 opacity-50"
+              )}>
+                <IngImg k={k} size={32} />
+                <span className="text-sm font-medium text-muted-foreground">{ING_NAME[k]}</span>
+                <span className="text-xl font-extrabold leading-none">{inv[k]}</span>
               </div>
-              {lastIngredient && (
-                <p className="text-center text-xs font-medium text-green-600 animate-bounce">
-                  +1 {ING_NAME[lastIngredient]}!
-                </p>
-              )}
-              <Button
-                onClick={openQuiz}
-                disabled={!myTeamId || quizAnswered}
-                size="sm"
-                className="w-full text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
-              >
-                <Image src="/pictures/question.png" alt="quiz" width={16} height={16} className="object-contain" />
-                Tìm nguyên liệu
-              </Button>
-              <Button
-                onClick={openBag}
-                disabled={myBags === 0 || openingBag || !myTeamId}
-                size="sm" variant="outline" className="w-full text-xs"
-              >
-                {openingBag ? "Đang mở..." : myBags === 0 ? "Chưa có túi" : `Mở túi (${myBags})`}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Trade button */}
-          <Button
-            onClick={() => setShowTrade(true)}
-            disabled={!myTeamId}
-            variant="outline"
-            size="sm"
-            className="w-full text-xs gap-1.5 relative"
-          >
-            <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
-            Quầy Quây Quần
-            {pendingOffers > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
-                {pendingOffers}
-              </span>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* Wrap button */}
-      {canWrapNow && (
-        <Button
-          onClick={() => setShowWrap(true)}
-          className="w-full h-12 text-base font-semibold bg-green-600 hover:bg-green-700 text-white gap-2"
-        >
-          🎋 Gói Bánh Chưng!
-        </Button>
-      )}
-
-      {/* Live scoreboard */}
-      <Card className="border-border/50">
-        <CardHeader className="pb-2 pt-3 px-3">
-          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bảng điểm</CardTitle>
-        </CardHeader>
-        <CardContent className="px-3 pb-3 space-y-1">
-          {teams.map(([tid, t], i) => (
-            <div key={tid} className={cn(
-              "flex items-center justify-between px-3 py-1.5 rounded-lg text-sm",
-              tid === myTeamId ? "bg-primary/10 font-medium" : "bg-muted/30"
-            )}>
-              <span className="flex items-center gap-2">
-                <span>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i+1}.`}</span>
-                <span className="truncate">{t.name}</span>
-                {t.banh && (t.banh.hiem > 0 || t.banh.dep > 0 || t.banh.thuong > 0) && (
-                  <span className="text-xs text-muted-foreground">
-                    {t.banh.hiem > 0 && `🏆×${t.banh.hiem} `}
-                    {t.banh.dep  > 0 && `✨×${t.banh.dep} `}
-                    {t.banh.thuong > 0 && `🍃×${t.banh.thuong}`}
-                  </span>
-                )}
-              </span>
-              <span className="font-bold text-primary">{t.score}đ</span>
-            </div>
-          ))}
+            ))}
+          </div>
+          {lastIngredient && (
+            <p className="text-center text-sm font-semibold text-green-600 animate-bounce mt-3">+1 {ING_NAME[lastIngredient]}!</p>
+          )}
+          <p className="text-sm font-medium text-muted-foreground text-center mt-3">Cần: 2 Gạo + 1 Thịt + 1 Đậu + 1 Lá</p>
         </CardContent>
       </Card>
+
+      {/* 3. HERO: Gói Bánh */}
+      <Button
+        onClick={() => setShowWrap(true)}
+        disabled={!canWrapNow}
+        className="w-full h-20 text-2xl font-bold gap-3 shadow-lg"
+        style={canWrapNow ? { background: "linear-gradient(135deg, #16a34a, #15803d)", boxShadow: "0 4px 20px rgba(22,163,74,0.45)", color: "white" } : {}}
+      >
+        <Image src="/pictures/chung-cake.png" alt="bánh chưng" width={40} height={40} className="object-contain" />
+        Gói Bánh
+      </Button>
+
+      {/* 4. Tìm nguyên liệu + Mở túi */}
+      <div className="grid grid-cols-2 gap-3">
+        <Button
+          onClick={openQuiz}
+          disabled={!myTeamId || quizAnswered || playerCooldown > 0}
+          className="h-14 text-base font-bold text-white gap-2"
+          style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)" }}
+        >
+          <Image src="/pictures/question.png" alt="quiz" width={18} height={18} className="object-contain" />
+          {playerCooldown > 0 ? `Nghỉ ${playerCooldown}s...` : "Tìm nguyên liệu"}
+        </Button>
+        <Button
+          onClick={openBag}
+          disabled={myBags === 0 || openingBag || !myTeamId}
+          className="h-14 text-base font-bold border-2 border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200 gap-2"
+        >
+          🎁 {openingBag ? "Đang mở..." : myBags === 0 ? "Chưa có túi" : `Mở túi (${myBags})`}
+        </Button>
+      </div>
+
+      {/* 5. Trade */}
+      <Button
+        onClick={() => setShowTrade(true)}
+        disabled={!myTeamId}
+        className="w-full h-14 text-base font-bold gap-2 relative bg-blue-600 hover:bg-blue-700 text-white"
+      >
+        <Image src="/pictures/shop.png" alt="shop" width={18} height={18} className="object-contain" />
+        Quầy Quây Quần
+        {pendingOffers > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+            {pendingOffers}
+          </span>
+        )}
+      </Button>
+
+      {/* 6. Xem bảng điểm CTA */}
+      <button
+        onClick={() => setShowScoreModal(true)}
+        className="w-full flex items-center justify-center gap-2 py-3 text-base font-medium text-white bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
+      >
+        <Image src="/pictures/podium.png" alt="podium" width={14} height={14} className="object-contain opacity-60" />
+        Xem bảng điểm
+      </button>
     </div>
   );
 }

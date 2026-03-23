@@ -1,5 +1,6 @@
 import MinigameRoot from "@/components/minigame/index";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 
 export const metadata = {
@@ -30,8 +31,9 @@ export default function MinigamePage() {
 
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="font-serif text-3xl md:text-4xl font-bold text-white drop-shadow-lg mb-2">
-              🎋 Hồn Việt Trong Bánh
+            <h1 className="font-serif text-3xl md:text-4xl font-bold text-white drop-shadow-lg mb-2 flex items-center justify-center gap-2">
+              <Image src="/pictures/chung-cake.png" alt="bánh chưng" width={36} height={36} className="object-contain drop-shadow" />
+              Hồn Việt Trong Bánh
             </h1>
             <p className="text-white/90 drop-shadow text-sm max-w-md mx-auto leading-relaxed">
               Trả lời câu hỏi để nhận nguyên liệu, phối hợp cùng team gói bánh chưng.

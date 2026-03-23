@@ -6,11 +6,12 @@ import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Gamepad2, Plus, LogIn, Loader2, Users } from "lucide-react";
+import Image from "next/image";
+import { Plus, LogIn, Loader2, Users } from "lucide-react";
 
 interface Props {
   playerId: string;
-  onJoined: (roomCode: string) => void;
+  onJoined: (roomCode: string, isAdmin?: boolean) => void;
 }
 
 // 12 team names — đại diện 54 dân tộc Việt Nam
@@ -48,6 +49,14 @@ function buildTeams(count: number) {
   return teams;
 }
 
+const RULES = [
+  { icon: "❓", text: "Trả lời đúng → nhận 1 túi nguyên liệu" },
+  { icon: "🎁", text: "Mở túi → ngẫu nhiên: Gạo / Thịt / Đậu / Lá" },
+  { icon: "🍃", text: "Gói bánh = 2 Gạo + 1 Thịt + 1 Đậu + 1 Lá" },
+  { icon: "🏪", text: "Đổi nguyên liệu tại Quầy Quây Quần!" },
+  { icon: "🏆", text: "Gói đẹp hơn → điểm cao hơn!" },
+];
+
 export default function Lobby({ playerId, onJoined }: Props) {
   const [name, setName] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -65,11 +74,9 @@ export default function Lobby({ playerId, onJoined }: Props) {
       host: playerId,
       gameStartTime: null,
       teams: buildTeams(teamCount),
-      players: {
-        [playerId]: { name: name.trim(), teamId: null, bags: 0 },
-      },
+      players: {},
     });
-    onJoined(code);
+    onJoined(code, true);
     setLoading(false);
   }
 
@@ -83,12 +90,11 @@ export default function Lobby({ playerId, onJoined }: Props) {
     const room = snap.val();
     if (room.phase !== "waiting") { setError("Phòng này đã bắt đầu chơi rồi!"); setLoading(false); return; }
 
-    // Count max capacity: number of teams × 3
     const teamCount = Object.keys(room.teams || {}).length;
     const maxPlayers = teamCount * 3;
     const currentPlayers = Object.keys(room.players || {}).length;
     if (currentPlayers >= maxPlayers) {
-      setError(`Phòng đã đủ ${maxPlayers} người (${teamCount} team × 3)!`);
+      setError(`Phòng đã đủ ${maxPlayers} người (${teamCount} nhóm × 3)!`);
       setLoading(false); return;
     }
 
@@ -99,106 +105,149 @@ export default function Lobby({ playerId, onJoined }: Props) {
 
   return (
     <div className="min-h-[520px] flex items-center justify-center p-6">
-      <Card className="w-full max-w-md shadow-xl border-border/50">
-        <CardHeader className="text-center pb-4">
-          <div className="flex justify-center mb-3">
-            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-              <Gamepad2 className="w-7 h-7 text-primary" />
+      <Card className="w-full max-w-md shadow-2xl border-2 border-border/40">
+        {/* ── Header ── */}
+        <CardHeader className="text-center pb-5 pt-7">
+          <div className="flex justify-center mb-4">
+            <div className="w-20 h-20 rounded-full bg-amber-50 border-2 border-amber-200 shadow-md flex items-center justify-center">
+              <Image src="/pictures/chung-cake.png" alt="bánh chưng" width={48} height={48} className="object-contain drop-shadow" />
             </div>
           </div>
-          <CardTitle className="font-serif text-2xl">🎋 Hồn Việt Trong Bánh</CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">Trả lời câu hỏi • Gói bánh chưng • Đổi nguyên liệu</p>
+          <CardTitle className="font-serif text-2xl font-bold flex items-center justify-center gap-2">
+            Hồn Việt Trong Bánh
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+            Trả lời câu hỏi · Gói bánh chưng · Đổi nguyên liệu
+          </p>
         </CardHeader>
 
-        <CardContent className="space-y-4">
-          {/* Name input */}
-          <div>
-            <label className="text-sm font-medium text-foreground mb-1.5 block">Tên của bạn</label>
+        <CardContent className="space-y-5 pb-7">
+          {/* ── Name input ── */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-semibold text-foreground block">Tên của bạn</label>
             <Input
               placeholder="Nhập tên hiển thị..."
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={20}
               onKeyDown={(e) => e.key === "Enter" && (tab === "create" ? handleCreate() : handleJoin())}
+              className="h-11 text-sm border-2 border-border/60 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary transition-colors"
             />
           </div>
 
-          {/* Tabs */}
-          <div className="flex rounded-lg border border-border overflow-hidden">
+          {/* ── Tabs ── */}
+          <div className="bg-muted/60 rounded-xl p-1 flex gap-1">
             <button
               onClick={() => setTab("create")}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${tab === "create" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                tab === "create"
+                  ? "bg-white shadow-sm text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
+              <Plus className="w-4 h-4" />
               Tạo phòng
             </button>
             <button
               onClick={() => setTab("join")}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${tab === "join" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                tab === "join"
+                  ? "bg-white shadow-sm text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
+              <LogIn className="w-4 h-4" />
               Vào phòng
             </button>
           </div>
 
+          {/* ── Tab content ── */}
           {tab === "create" ? (
-            <div className="space-y-3">
-              {/* Team count picker */}
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 flex items-center gap-1.5">
-                  <Users className="w-4 h-4" />
-                  Số team ({teamCount} team × 3 người = tối đa {teamCount * 3} người)
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-primary" />
+                  Số nhóm
+                  <span className="font-normal text-muted-foreground ml-1">
+                    ({teamCount} nhóm × 3 người = tối đa {teamCount * 3} người)
+                  </span>
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <input
                     type="range"
                     min={2}
                     max={12}
                     value={teamCount}
                     onChange={(e) => setTeamCount(Number(e.target.value))}
-                    className="flex-1 accent-primary"
+                    className="flex-1 accent-primary h-2"
                   />
-                  <span className="w-8 text-center font-bold text-primary">{teamCount}</span>
+                  <span className="w-9 h-9 flex items-center justify-center rounded-lg bg-primary/10 font-extrabold text-primary text-base shrink-0">
+                    {teamCount}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-1 mt-1.5">
+                <div className="flex flex-wrap gap-1.5 mt-1">
                   {TEAM_PRESETS.slice(0, teamCount).map((t) => (
-                    <span key={t.color} className="text-xs bg-muted rounded px-1.5 py-0.5">{t.name}</span>
+                    <span key={t.color} className="text-xs bg-primary/5 border border-primary/15 rounded-full px-2.5 py-0.5 font-medium">
+                      {t.name}
+                    </span>
                   ))}
                 </div>
               </div>
 
-              <Button onClick={handleCreate} disabled={loading} className="w-full gap-2">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Tạo phòng ({teamCount} team)
+              <Button
+                onClick={handleCreate}
+                disabled={loading}
+                className="w-full h-12 text-base font-bold gap-2 text-white shadow-lg"
+                style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)", boxShadow: "0 4px 14px rgba(245,158,11,0.4)" }}
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+                Tạo phòng ({teamCount} nhóm)
               </Button>
             </div>
           ) : (
-            <div className="space-y-3">
-              <Input
-                placeholder="Nhập mã phòng (VD: AB12CD)"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                maxLength={6}
-                className="text-center tracking-widest font-mono text-lg uppercase"
-                onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-              />
-              <Button onClick={handleJoin} disabled={loading} className="w-full gap-2">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-semibold text-foreground block">Mã phòng</label>
+                <Input
+                  placeholder="VD: AB12CD"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  maxLength={6}
+                  className="h-14 text-center tracking-[0.35em] font-mono text-xl uppercase border-2 border-border/60 focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary transition-colors"
+                  onKeyDown={(e) => e.key === "Enter" && handleJoin()}
+                />
+              </div>
+              <Button
+                onClick={handleJoin}
+                disabled={loading}
+                className="w-full h-12 text-base font-bold gap-2 text-white shadow-lg"
+                style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", boxShadow: "0 4px 14px rgba(59,130,246,0.4)" }}
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
                 Vào phòng
               </Button>
             </div>
           )}
 
+          {/* ── Error ── */}
           {error && (
-            <p className="text-sm text-red-500 text-center bg-red-50 rounded-lg py-2 px-3">{error}</p>
+            <p className="text-sm text-red-600 text-center bg-red-50 border border-red-200 rounded-xl py-2.5 px-4">
+              {error}
+            </p>
           )}
 
-          {/* Rules */}
-          <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground mb-1">📋 Luật chơi nhanh:</p>
-            <p>• Trả lời đúng → nhận 1 túi nguyên liệu</p>
-            <p>• Mở túi → ngẫu nhiên: Gạo / Thịt / Đậu / Lá</p>
-            <p>• Gói bánh = 2 Gạo + 1 Thịt + 1 Đậu + 1 Lá</p>
-            <p>• Đổi nguyên liệu tại 🏪 Quầy Quây Quần!</p>
-            <p>• Gói đẹp hơn → điểm cao hơn!</p>
+          {/* ── Rules ── */}
+          <div className="bg-primary/5 border border-primary/15 rounded-xl p-4 space-y-2.5">
+            <p className="text-xs font-bold text-foreground flex items-center gap-1.5 mb-3">
+              <Image src="/pictures/question-sign.png" alt="luật chơi" width={16} height={16} className="object-contain" />
+              Luật chơi nhanh
+            </p>
+            {RULES.map((r, i) => (
+              <div key={i} className="flex items-start gap-2.5 text-xs text-muted-foreground">
+                <span className="shrink-0 text-sm leading-none mt-0.5">{r.icon}</span>
+                <span className="leading-relaxed">{r.text}</span>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

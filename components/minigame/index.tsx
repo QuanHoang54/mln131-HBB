@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ref, onValue } from "firebase/database";
 import { db } from "@/lib/firebase";
 import Lobby from "./Lobby";
 import WaitingRoom from "./WaitingRoom";
 import GamePlay from "./GamePlay";
 import Scoreboard from "./Scoreboard";
+import AdminDashboard from "./AdminDashboard";
+import VolumeControl from "./VolumeControl";
 
 function getOrCreatePlayerId(): string {
   if (typeof window === "undefined") return Math.random().toString(36).slice(2, 10);
@@ -19,9 +21,31 @@ function getOrCreatePlayerId(): string {
 }
 
 export default function MinigameRoot() {
-  const [playerId] = useState<string>(getOrCreatePlayerId);
+  const [playerId]            = useState<string>(getOrCreatePlayerId);
   const [roomCode, setRoomCode] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"lobby" | "waiting" | "playing" | "ended">("lobby");
+  const [phase, setPhase]     = useState<"lobby" | "waiting" | "playing" | "ended">("lobby");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const audioRef              = useRef<HTMLAudioElement | null>(null);
+
+  // Background music
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio("/sounds/NhacNenHangRong.MP3");
+      audioRef.current.loop = true;
+      audioRef.current.volume = 0.4;
+    }
+    const audio = audioRef.current;
+    if (phase !== "lobby" && roomCode) {
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  }, [phase, roomCode]);
+
+  useEffect(() => {
+    return () => { audioRef.current?.pause(); };
+  }, []);
 
   useEffect(() => {
     if (!roomCode) return;
@@ -35,31 +59,37 @@ export default function MinigameRoot() {
     return unsub;
   }, [roomCode]);
 
+  function handleLeave() {
+    setRoomCode(null);
+    setPhase("lobby");
+    setIsAdmin(false);
+  }
+
   if (phase === "lobby" || !roomCode) {
     return (
       <Lobby
         playerId={playerId}
-        onJoined={(code) => {
+        onJoined={(code, admin = false) => {
           setRoomCode(code);
+          setIsAdmin(admin ?? false);
           setPhase("waiting");
         }}
       />
     );
   }
 
-  if (phase === "waiting") {
-    return (
-      <WaitingRoom
-        playerId={playerId}
-        roomCode={roomCode}
-        onLeave={() => { setRoomCode(null); setPhase("lobby"); }}
-      />
-    );
-  }
-
-  if (phase === "playing") {
-    return <GamePlay playerId={playerId} roomCode={roomCode} />;
-  }
-
-  return <Scoreboard roomCode={roomCode} onPlayAgain={() => { setRoomCode(null); setPhase("lobby"); }} />;
+  return (
+    <>
+      {isAdmin ? (
+        <AdminDashboard roomCode={roomCode} onLeave={handleLeave} />
+      ) : phase === "waiting" ? (
+        <WaitingRoom playerId={playerId} roomCode={roomCode} onLeave={handleLeave} />
+      ) : phase === "playing" ? (
+        <GamePlay playerId={playerId} roomCode={roomCode} />
+      ) : (
+        <Scoreboard roomCode={roomCode} onPlayAgain={handleLeave} />
+      )}
+      <VolumeControl audioRef={audioRef} />
+    </>
+  );
 }

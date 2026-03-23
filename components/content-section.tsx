@@ -8,18 +8,19 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { BookOpen, Users, Scale, TrendingUp, ShieldCheck, Flag, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import Image from "next/image";
 import { AnimatedSection, AnimatedCard, StaggerContainer, StaggerItem } from "@/components/animated-section";
 import { motion } from "framer-motion";
 import { Citation } from "@/components/citation";
 import { ImageSlideshow } from "@/components/image-slideshow";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
 const contentSections = [
   {
     id: "ly-luan",
-    icon: BookOpen,
+    icon: "/images/p1.png",
     title: "Cơ sở lý luận về dân tộc",
     description:
       "Dân tộc là một hình thái cộng đồng người ổn định trên cơ sở kinh tế, lãnh thổ, ngôn ngữ và tâm lý. Theo quan điểm của Chủ nghĩa Mác - Lênin, trong thời kỳ quá độ, vấn đề dân tộc vẫn tồn tại lâu dài và nhạy cảm.",
@@ -42,7 +43,7 @@ const contentSections = [
   },
   {
     id: "dac-diem",
-    icon: Users,
+    icon: "/images/p2.png",
     title: "Đặc điểm dân tộc Việt Nam",
     description:
       "Để thấy được tại sao người Kinh lại có lợi thế, ta phải nhìn vào thực tế địa chính trị và các đặc điểm riêng của Việt Nam.",
@@ -60,7 +61,7 @@ const contentSections = [
   },
   {
     id: "chinh-sach",
-    icon: Scale,
+    icon: "/images/p3.png",
     title: "Chính sách dân tộc nhất quán",
     description:
       'Nhà nước Việt Nam xác định vấn đề dân tộc là vấn đề chiến lược, lâu dài. Chính sách không phải là "áp đặt" mà là: "Bình đẳng, đoàn kết, tôn trọng, giúp nhau cùng phát triển".',
@@ -86,7 +87,7 @@ const contentSections = [
   },
   {
     id: "nguyen-nhan",
-    icon: TrendingUp,
+    icon: "/images/p4.png",
     title: "Nguyên nhân chênh lệch phát triển",
     description:
       'Sự vượt trội của người Kinh không phải do "chiếm dụng", mà là hệ quả của các yếu tố khách quan về địa lý và lịch sử.',
@@ -113,7 +114,7 @@ const contentSections = [
   },
   {
     id: "bac-bo",
-    icon: ShieldCheck,
+    icon: "/images/p5.png",
     title: 'Bác bỏ luận điểm "Chiếm dụng"',
     description:
       "Dựa trên thực tế đã phân tích, chúng ta có thể đưa ra các lập luận phản biện các quan điểm sai lệch về vấn đề dân tộc tại Việt Nam.",
@@ -148,7 +149,7 @@ const contentSections = [
   },
   {
     id: "ket-luan",
-    icon: Flag,
+    icon: "/images/p6.png",
     title: "Ý nghĩa đoàn kết dân tộc & Kết luận",
     description:
       "Đoàn kết dân tộc là nguồn sức mạnh để xây dựng CNXH và bảo vệ Tổ quốc. Xây dựng CNXH thành công chỉ khi mọi dân tộc đều được hưởng thành quả của sự phát triển một cách công bằng.",
@@ -182,9 +183,10 @@ const contentSections = [
 export function ContentSection() {
   const [imageZoom, setImageZoom] = useState(1);
   const [highlightedSection, setHighlightedSection] = useState<string | null>(null);
-  
-  const handleZoomIn = () => setImageZoom(prev => Math.min(prev + 0.25, 3));
-  const handleZoomOut = () => setImageZoom(prev => Math.max(prev - 0.25, 0.5));
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleZoomIn = () => setImageZoom(prev => Math.min(prev + 0.25, 2));
+  const handleZoomOut = () => setImageZoom(prev => Math.max(prev - 0.25, 1));
   const handleResetZoom = () => setImageZoom(1);
 
   // Scroll-to-focus behavior: highlight section when navigating via anchor
@@ -207,7 +209,7 @@ export function ContentSection() {
   }, []);
 
   return (
-    <section id="noi-dung" className="py-20 px-6 bg-black/70 backdrop-blur-sm">
+    <section id="noi-dung" className="py-20 px-6 bg-black/25 backdrop-blur-[3px]">
       <div className="max-w-5xl mx-auto">
         {/* Section header */}
         <AnimatedSection className="text-center mb-16">
@@ -246,7 +248,7 @@ export function ContentSection() {
                         whileHover={{ scale: 1.1, rotate: 5 }}
                         transition={{ type: "spring", stiffness: 400 }}
                       >
-                        <section.icon className="w-6 h-6" />
+                        <Image src={section.icon} alt="" width={24} height={24} className="object-contain" />
                       </motion.div>
                       <div className="flex-1">
                         <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
@@ -277,7 +279,7 @@ export function ContentSection() {
                             variant="outline"
                             size="sm"
                             onClick={handleZoomOut}
-                            disabled={imageZoom <= 0.5}
+                            disabled={imageZoom <= 1}
                             className="h-8 w-8 p-0"
                           >
                             <ZoomOut className="h-4 w-4" />
@@ -289,7 +291,7 @@ export function ContentSection() {
                             variant="outline"
                             size="sm"
                             onClick={handleZoomIn}
-                            disabled={imageZoom >= 3}
+                            disabled={imageZoom >= 2}
                             className="h-8 w-8 p-0"
                           >
                             <ZoomIn className="h-4 w-4" />
@@ -305,17 +307,18 @@ export function ContentSection() {
                         </div>
                         
                         {/* Image container with zoom */}
-                        <div className="overflow-auto max-h-[350px] bg-white">
-                          <motion.img 
+                        <div ref={imageContainerRef} className="overflow-hidden max-h-[350px] bg-white select-none">
+                          <motion.img
+                            key={imageZoom <= 1 ? "normal" : "zoomed"}
                             src={section.image.src}
                             alt={section.image.alt}
-                            className="w-full h-auto object-contain cursor-grab active:cursor-grabbing"
-                            style={{ 
-                              transform: `scale(${imageZoom})`,
-                              transformOrigin: 'center center'
-                            }}
+                            className="w-full h-auto object-contain"
+                            style={{ cursor: imageZoom > 1 ? "grab" : "default", transformOrigin: "center center" }}
                             animate={{ scale: imageZoom }}
                             transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            drag={imageZoom > 1}
+                            dragConstraints={imageContainerRef}
+                            dragElastic={0.05}
                             draggable={false}
                           />
                         </div>

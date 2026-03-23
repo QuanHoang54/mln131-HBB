@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 
 export type WrapResult = "thuong" | "dep" | "hiem";
@@ -15,14 +16,14 @@ interface Props {
 function generateZones(): Zone[] {
   // Total: 100 units. Hiếm: 10%, Đẹp: 20%, Thường: 70%
   // Randomize position of the Đẹp+Hiếm cluster within the bar
-  const clusterWidth = 30; // Đẹp(20) + Hiếm(10)
+  const clusterWidth = 27; // Đẹp(20) + Hiếm(7)
   const clusterStart = Math.floor(Math.random() * (100 - clusterWidth - 10)) + 5;
   const depStart = clusterStart;
   const hiemStart = clusterStart + 20;
 
   return [
     { start: depStart, end: depStart + 20, type: "dep" },
-    { start: hiemStart, end: hiemStart + 10, type: "hiem" },
+    { start: hiemStart, end: hiemStart + 7, type: "hiem" },
   ];
 }
 
@@ -34,9 +35,9 @@ function getZoneAt(pos: number, zones: Zone[]): WrapResult {
 }
 
 const RESULT_CONFIG = {
-  thuong: { label: "Bánh Thường 🍃", points: 1, color: "bg-gray-100 border-gray-300 text-gray-700", emoji: "🍃" },
-  dep: { label: "Bánh Đẹp ✨", points: 2, color: "bg-blue-100 border-blue-300 text-blue-700", emoji: "✨" },
-  hiem: { label: "Bánh Hiếm 🏆", points: 4, color: "bg-amber-100 border-amber-400 text-amber-800", emoji: "🏆" },
+  thuong: { label: "Bánh Truyền thống 🍃", points: 1, color: "bg-gray-100 border-gray-300 text-gray-700", emoji: "🍃" },
+  dep: { label: "Bánh Hoàn thiện ✨", points: 2, color: "bg-blue-100 border-blue-300 text-blue-700", emoji: "✨" },
+  hiem: { label: "Bánh Tinh hoa 🏆", points: 4, color: "bg-amber-100 border-amber-400 text-amber-800", emoji: "🏆" },
 };
 
 export default function WrappingBar({ onResult, onCancel }: Props) {
@@ -50,13 +51,13 @@ export default function WrappingBar({ onResult, onCancel }: Props) {
 
   const tick = useCallback(() => {
     if (stoppedRef.current) return;
-    posRef.current += dirRef.current * 1.5;
+    posRef.current += dirRef.current * 1.575;
     if (posRef.current >= 100) { posRef.current = 100; dirRef.current = -1; }
     if (posRef.current <= 0) { posRef.current = 0; dirRef.current = 1; }
     // Speed up slightly in hiem zone
     const zone = getZoneAt(posRef.current, zones);
-    const speed = zone === "hiem" ? 2.5 : 1.5;
-    posRef.current = Math.min(100, Math.max(0, posRef.current + (dirRef.current * (speed - 1.5))));
+    const speed = zone === "hiem" ? 2.625 : 1.575;
+    posRef.current = Math.min(100, Math.max(0, posRef.current + (dirRef.current * (speed - 1.575))));
     setPos(posRef.current);
   }, [zones]);
 
@@ -80,7 +81,10 @@ export default function WrappingBar({ onResult, onCancel }: Props) {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-background rounded-2xl shadow-2xl p-6 w-full max-w-md space-y-5">
         <div className="text-center">
-          <h3 className="font-serif text-xl font-semibold">🎋 Hồn Việt Trong Bánh</h3>
+          <h3 className="font-serif text-xl font-semibold flex items-center justify-center gap-2">
+            <Image src="/pictures/chung-cake.png" alt="bánh chưng" width={24} height={24} className="object-contain" />
+            Hồn Việt Trong Bánh
+          </h3>
           <p className="text-sm text-muted-foreground mt-1">Nhấn DỪNG khi con trỏ vào vùng tốt!</p>
         </div>
 
@@ -95,7 +99,7 @@ export default function WrappingBar({ onResult, onCancel }: Props) {
                 style={{ left: `${z.start}%`, width: `${z.end - z.start}%` }}
               >
                 <span className={z.type === "hiem" ? "text-amber-600" : "text-blue-600"}>
-                  {z.type === "hiem" ? "Hiếm" : "Đẹp"}
+                  {z.type === "hiem" ? "Tinh hoa" : "Hoàn thiện"}
                 </span>
               </div>
             ))}
@@ -132,9 +136,9 @@ export default function WrappingBar({ onResult, onCancel }: Props) {
 
           {/* Legend */}
           <div className="flex items-center gap-3 text-xs text-muted-foreground justify-center">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-gray-200 inline-block" />Thường (1đ)</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-300 inline-block" />Đẹp (2đ)</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 inline-block" />Hiếm (4đ)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-gray-200 inline-block" />Truyền thống (1đ)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-300 inline-block" />Hoàn thiện (2đ)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 inline-block" />Tinh hoa (4đ)</span>
           </div>
         </div>
 

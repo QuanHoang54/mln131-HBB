@@ -52,7 +52,7 @@ export function Footer() {
 
       {/* Animated background with subtle breathing effect */}
       <motion.div 
-        className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/80 to-black/90"
+        className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/60 to-black/72"
         animate={{
           opacity: [0.85, 0.95, 0.85],
         }}
