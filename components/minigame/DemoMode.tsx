@@ -10,7 +10,7 @@ import { questions } from "@/lib/questions";
 import WrappingBar, { WrapResult } from "./WrappingBar";
 import {
   PlayCircle, ChevronRight, Users, Trophy,
-  Copy, Check, RotateCcw, ArrowLeft, ShoppingCart,
+  Copy, Check, RotateCcw, ArrowLeft,
   X, ArrowRightLeft,
 } from "lucide-react";
 
@@ -206,8 +206,8 @@ function DemoTradePanel({
       <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">🏪 Quầy Quây Quần</h3>
+            <Image src="/pictures/shop.png" alt="shop" width={24} height={24} className="object-contain" />
+            <h3 className="font-semibold">Quầy Quây Quần</h3>
           </div>
           <button onClick={() => onClose()} className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
@@ -250,7 +250,7 @@ function DemoTradePanel({
               </div>
             </div>
             <Button onClick={postOffer} size="sm" className="w-full gap-1.5">
-              <ShoppingCart className="w-3.5 h-3.5" />
+              <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
               Đăng: 1 {ING_NAME[give]} → 1 {ING_NAME[want]}
             </Button>
           </div>
@@ -307,10 +307,12 @@ function DemoGamePlay({ onWrap, startTime }: { onWrap: () => void; startTime: nu
   const [inv, setInv]           = useState<Inventory>({ gao: 1, thit: 1, dau: 0, la: 0 });
   const [showTrade, setTrade]   = useState(false);
   const [tradeOffers, setOffers]= useState<TradeOffer[]>(INITIAL_TRADE_OFFERS);
-  const [showQuiz, setQuiz]     = useState(false);
-  const [quizQIdx, setQuizQIdx] = useState(0);
-  const [quizSel, setQuizSel]   = useState<number | null>(null);
-  const [quizDone, setQuizDone] = useState(false);
+  const [showQuiz, setQuiz]       = useState(false);
+  const [quizQIdx, setQuizQIdx]   = useState(0);
+  const [quizSel, setQuizSel]     = useState<number | null>(null);
+  const [quizDone, setQuizDone]   = useState(false);
+  const [quizTimeLeft, setQuizTL] = useState(10);
+  const quizTimerRef              = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 500);
@@ -326,10 +328,30 @@ function DemoGamePlay({ onWrap, startTime }: { onWrap: () => void; startTime: nu
 
   const sorted = Object.entries(MOCK_TEAMS).sort(([, a], [, b]) => b.score - a.score);
 
+  // Countdown 10s — auto-close quiz on timeout
+  useEffect(() => {
+    if (!showQuiz || quizDone) return;
+    setQuizTL(10);
+    quizTimerRef.current = setInterval(() => {
+      setQuizTL(t => {
+        if (t <= 1) {
+          clearInterval(quizTimerRef.current!);
+          setQuiz(false);
+          setQuizQIdx(n => n + 1);
+          return 10;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => { if (quizTimerRef.current) clearInterval(quizTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQuiz]);
+
   function openQuiz() { setQuizSel(null); setQuizDone(false); setQuiz(true); }
 
   function answerQuiz(i: number) {
     if (quizDone) return;
+    if (quizTimerRef.current) clearInterval(quizTimerRef.current);
     setQuizSel(i);
     setQuizDone(true);
     if (i === currentQ.correct) setBags(b => b + 1);
@@ -366,12 +388,26 @@ function DemoGamePlay({ onWrap, startTime }: { onWrap: () => void; startTime: nu
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <p className="font-medium text-sm">🔍 Tìm Nguyên Liệu</p>
-              {!quizDone && (
-                <button onClick={() => setQuiz(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <Image src="/pictures/question.png" alt="quiz" width={24} height={24} className="object-contain" />
+                <p className="font-medium text-sm">Tìm Nguyên Liệu</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {!quizDone && (
+                  <span className={cn(
+                    "font-mono text-sm font-bold w-6 text-center",
+                    quizTimeLeft <= 3 ? "text-red-500 animate-pulse" : "text-muted-foreground"
+                  )}>
+                    {quizTimeLeft}s
+                  </span>
+                )}
+                {!quizDone && (
+                  <button onClick={() => { if (quizTimerRef.current) clearInterval(quizTimerRef.current); setQuiz(false); setQuizQIdx(n => n + 1); }}
+                    className="text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="p-4 space-y-3">
               <p className="font-serif text-sm leading-snug">{currentQ.question}</p>
@@ -457,7 +493,8 @@ function DemoGamePlay({ onWrap, startTime }: { onWrap: () => void; startTime: nu
             {lastIng && <p className="text-xs text-green-600 font-medium animate-bounce">+1 {ING_NAME[lastIng]}!</p>}
             <Button onClick={openQuiz} disabled={quizDone} size="sm"
               className="w-full text-xs h-7 bg-amber-500 hover:bg-amber-600 text-white">
-              🔍 Tìm nguyên liệu
+              <Image src="/pictures/question.png" alt="quiz" width={16} height={16} className="object-contain" />
+              Tìm nguyên liệu
             </Button>
             <Button onClick={openBag} disabled={bags === 0} size="sm" variant="outline" className="w-full text-xs h-7">
               {bags === 0 ? "Chưa có túi" : `Mở túi (${bags})`}
@@ -470,8 +507,8 @@ function DemoGamePlay({ onWrap, startTime }: { onWrap: () => void; startTime: nu
       <div className="flex gap-2">
         <Button onClick={() => setTrade(true)} variant="outline" size="sm"
           className="flex-1 text-xs gap-1.5 relative">
-          <ShoppingCart className="w-3.5 h-3.5" />
-          🏪 Quây Quần
+          <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
+          Quầy Quây Quần
           {pendingOffers > 0 && (
             <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
               {pendingOffers}

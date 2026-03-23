@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { ref, onValue, update, get, push, remove } from "firebase/database";
+import { ref, onValue, update, get, push, remove, runTransaction } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { questions } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import WrappingBar, { WrapResult } from "./WrappingBar";
-import { ShoppingCart, X, ArrowRightLeft, Check } from "lucide-react";
+import { X, ArrowRightLeft, Check } from "lucide-react";
 
 type IngKey = "gao" | "thit" | "dau" | "la";
 interface Inventory { gao: number; thit: number; dau: number; la: number; }
@@ -160,8 +160,8 @@ function TradePanel({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">🏪 Quầy Quây Quần</h3>
+            <Image src="/pictures/shop.png" alt="shop" width={24} height={24} className="object-contain" />
+            <h3 className="font-semibold">Quầy Quây Quần</h3>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-5 h-5" />
@@ -227,7 +227,7 @@ function TradePanel({
               </div>
             ) : (
               <Button onClick={postOffer} disabled={posting} size="sm" className="w-full gap-1.5">
-                <ShoppingCart className="w-3.5 h-3.5" />
+                <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
                 Đăng đổi: 1 {ING_NAME[giveIng]} → 1 {ING_NAME[wantIng]}
               </Button>
             )}
@@ -295,6 +295,8 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   const [quizQIdx, setQuizQIdx] = useState(0);
   const [quizSelected, setQuizSelected] = useState<number | null>(null);
   const [quizAnswered, setQuizAnswered] = useState(false);
+  const [quizTimeLeft, setQuizTimeLeft] = useState(10);
+  const quizTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [openingBag, setOpeningBag] = useState(false);
   const [lastIngredient, setLastIngredient] = useState<IngKey | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -334,6 +336,25 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   const currentQ = shuffledQuestions[quizQIdx % shuffledQuestions.length];
   const correctIdx = currentQ?.correct;
 
+  // Quiz countdown — starts at 10s when modal opens, auto-closes on 0
+  useEffect(() => {
+    if (!showQuiz || quizAnswered) return;
+    setQuizTimeLeft(10);
+    quizTimerRef.current = setInterval(() => {
+      setQuizTimeLeft(t => {
+        if (t <= 1) {
+          clearInterval(quizTimerRef.current!);
+          setShowQuiz(false);
+          setQuizQIdx(i => i + 1);
+          return 10;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => { if (quizTimerRef.current) clearInterval(quizTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQuiz]);
+
   function openQuiz() {
     setQuizSelected(null);
     setQuizAnswered(false);
@@ -342,6 +363,7 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
 
   async function handleQuizAnswer(optionIdx: number) {
     if (quizAnswered) return;
+    if (quizTimerRef.current) clearInterval(quizTimerRef.current);
     setQuizSelected(optionIdx);
     setQuizAnswered(true);
     if (optionIdx === correctIdx && myPlayer) {
@@ -356,16 +378,21 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
   }
 
   async function openBag() {
-    if (openingBag || myBags <= 0) return;
+    if (openingBag || myBags <= 0 || !myTeamId) return;
     setOpeningBag(true);
     const ing = randomIngredient();
     setLastIngredient(ing);
-    await update(ref(db, `rooms/${roomCode}/players/${playerId}`), { bags: Math.max(0, myBags - 1) });
-    if (myTeamId) {
-      const currentInv = myTeam?.inventory ?? { gao: 0, thit: 0, dau: 0, la: 0 };
-      await update(ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory`), {
-        [ing]: (currentInv[ing] ?? 0) + 1,
-      });
+    // Atomic decrement — prevents double-open race condition
+    const bagResult = await runTransaction(
+      ref(db, `rooms/${roomCode}/players/${playerId}/bags`),
+      (current) => (current === null || current <= 0) ? undefined : current - 1
+    );
+    if (bagResult.committed) {
+      // Atomic increment on team inventory
+      await runTransaction(
+        ref(db, `rooms/${roomCode}/teams/${myTeamId}/inventory/${ing}`),
+        (current) => (current ?? 0) + 1
+      );
     }
     setTimeout(() => { setOpeningBag(false); setLastIngredient(null); }, 2000);
   }
@@ -415,12 +442,25 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-background rounded-2xl border border-border shadow-2xl w-full max-w-sm">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <p className="font-medium text-sm">🔍 Tìm Nguyên Liệu</p>
-              {!quizAnswered && (
-                <button onClick={() => setShowQuiz(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <Image src="/pictures/question.png" alt="quiz" width={24} height={24} className="object-contain" />
+                <p className="font-medium text-sm">Tìm Nguyên Liệu</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {!quizAnswered && (
+                  <span className={cn(
+                    "font-mono text-sm font-bold w-6 text-center",
+                    quizTimeLeft <= 3 ? "text-red-500 animate-pulse" : "text-muted-foreground"
+                  )}>
+                    {quizTimeLeft}s
+                  </span>
+                )}
+                {!quizAnswered && (
+                  <button onClick={() => { if (quizTimerRef.current) clearInterval(quizTimerRef.current); setShowQuiz(false); setQuizQIdx(i => i + 1); }} className="text-muted-foreground hover:text-foreground">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="p-4 space-y-3">
               <p className="font-serif text-sm leading-snug">{currentQ.question}</p>
@@ -525,9 +565,10 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
                 onClick={openQuiz}
                 disabled={!myTeamId || quizAnswered}
                 size="sm"
-                className="w-full text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1"
+                className="w-full text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5"
               >
-                🔍 Tìm nguyên liệu
+                <Image src="/pictures/question.png" alt="quiz" width={16} height={16} className="object-contain" />
+                Tìm nguyên liệu
               </Button>
               <Button
                 onClick={openBag}
@@ -547,8 +588,8 @@ export default function GamePlay({ playerId, roomCode }: { playerId: string; roo
             size="sm"
             className="w-full text-xs gap-1.5 relative"
           >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            🏪 Quây Quần
+            <Image src="/pictures/shop.png" alt="shop" width={16} height={16} className="object-contain" />
+            Quầy Quây Quần
             {pendingOffers > 0 && (
               <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
                 {pendingOffers}
